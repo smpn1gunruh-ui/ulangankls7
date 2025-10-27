@@ -53,10 +53,6 @@
             <input type="text" id="studentName" required class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">NIP/NISN</label>
-            <input type="text" id="studentNIP" required class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
-          </div>
-          <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">Kelas</label>
             <select id="studentClass" required class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500">
               <option value="">Pilih Kelas</option>
@@ -78,7 +74,7 @@
         <div class="bg-white rounded-lg shadow-sm p-4 mb-6 flex justify-between items-center">
           <div>
             <h3 class="font-semibold text-gray-800" id="displayName">-</h3>
-            <p class="text-sm text-gray-600">NIP: <span id="displayNIP">-</span> | Kelas: <span id="displayClass">-</span></p>
+            <p class="text-sm text-gray-600"> Kelas: <span id="displayClass">-</span></p>
           </div>
           <div class="text-right">
             <div class="text-lg font-bold text-blue-600" id="timer">05:00</div>
@@ -110,7 +106,7 @@
           <h2 class="text-2xl font-bold text-gray-800 mb-4">Ulangan Selesai!</h2>
           <div class="bg-gray-50 rounded-lg p-6 mb-6">
             <h3 class="font-semibold text-gray-800 mb-2" id="finalName">-</h3>
-            <p class="text-gray-600 mb-4">NIP: <span id="finalNIP">-</span> | Kelas: <span id="finalClass">-</span></p>
+            <p class="text-gray-600 mb-4">Kelas: <span id="finalClass">-</span></p>
             <div class="text-3xl font-bold text-blue-600 mb-2" id="finalScore">0</div>
             <p class="text-gray-600">dari 10 soal</p>
           </div>
@@ -155,11 +151,9 @@
       e.preventDefault();
       student = {
         name: studentName.value,
-        nip: studentNIP.value,
         class: studentClass.value
       };
       displayName.textContent = student.name;
-      displayNIP.textContent = student.nip;
       displayClass.textContent = student.class;
       loginForm.classList.add("hidden");
       examInterface.classList.remove("hidden");
@@ -234,7 +228,6 @@
 
       const result = {
         name: student.name,
-        nip: student.nip,
         class: student.class,
         score: score,
         totalQuestions: questions.length,
@@ -251,7 +244,6 @@
       examInterface.classList.add("hidden");
       resultsScreen.classList.remove("hidden");
       finalName.textContent = student.name;
-      finalNIP.textContent = student.nip;
       finalClass.textContent = student.class;
       finalScore.textContent = `${score}/${questions.length}`;
     }
@@ -260,3 +252,4 @@
   </script>
 </body>
 </html>
+
