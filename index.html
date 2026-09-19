@@ -266,25 +266,33 @@ const JENIS = {
 };
 
 /* ---------- Lapisan penyimpanan: Google Sheets via Apps Script ---------- */
+/* ---------- Lapisan penyimpanan: Fetch API ke Google Apps Script Web App ---------- */
 const DB = {
-  mode:"server",
-  _call(fn,args=[]){
-    return new Promise((resolve,reject)=>{
-      if(typeof google==="undefined" || !google.script || !google.script.run){
-        reject(new Error("Aplikasi harus dijalankan sebagai Google Apps Script Web App."));
-        return;
-      }
-      let runner=google.script.run
-        .withSuccessHandler(resolve)
-        .withFailureHandler(reject);
-      runner[fn](...args);
-    });
+  mode: "server",
+  // Masukkan URL Web App Apps Script Anda di sini:
+  API_URL: "https://script.google.com/macros/s/AKfycbzeY-pJXDMFy-zJVJqpt0vFdjQ6vMDBfwAC6R8AzSGsGOC7q_gqXMx5H3INI6jNDDDs/exec",
+
+  async _call(fn, args = []) {
+    try {
+      const response = await fetch(this.API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ fn, args })
+      });
+      const json = await response.json();
+      if (!json.success) throw new Error(json.error || "Terjadi kesalahan server");
+      return json.result;
+    } catch (err) {
+      console.error("DB Error:", err);
+      throw err;
+    }
   },
-  async init(){ this.mode="server"; },
-  async list(col){ return await this._call("dbList",[col]); },
-  async get(col,id){ return await this._call("dbGet",[col,id]); },
-  async set(col,id,data){ return await this._call("dbSet",[col,id,data]); },
-  async del(col,id){ return await this._call("dbDel",[col,id]); }
+
+  async init() { this.mode = "server"; },
+  async list(col) { return await this._call("dbList", [col]); },
+  async get(col, id) { return await this._call("dbGet", [col, id]); },
+  async set(col, id, data) { return await this._call("dbSet", [col, id, data]); },
+  async del(col, id) { return await this._call("dbDel", [col, id]); }
 };
 
 /* ---------- State global ---------- */
