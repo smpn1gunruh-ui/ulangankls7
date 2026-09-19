@@ -272,35 +272,40 @@ const JENIS = {
 const DB = {
   mode: "server",
   // URL Web App Google Apps Script Anda:
-  API_URL: "https://script.google.com/macros/s/AKfycbzR5vvPKAyiW4p6AYOtbiy-rcCZjGpJVIItTUanHSthIzkKuZ0dqdo7nlPqVsZ37AI5/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbylMTi608GhzsfCLq1dDVeG2Ddx24InhH5mtJvyG7KnImJBoFsJTDVoKAA7DFJITb0/exec",
 
   async _call(fn, args = []) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(this.API_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ fn, args })
+        body: JSON.stringify({ fn, args }),
+        signal: controller.signal
       });
       const text = await response.text();
+      if (!response.ok) throw new Error("HTTP " + response.status + " — " + text.slice(0,200));
       let json;
-      try {
-        json = JSON.parse(text);
-      } catch (e) {
-        throw new Error("Respons server bukan JSON valid: " + text.slice(0, 100));
-      }
-      if (!json.success) throw new Error(json.error || "Terjadi kesalahan server");
-      return json.result;
+      try { json = JSON.parse(text); }
+      catch(e) { throw new Error("Respons server bukan JSON valid: " + text.slice(0,200)); }
+      if (json && json.success === false) throw new Error(json.error || json.message || "Terjadi kesalahan server");
+      if (json && json.success === true) return json.result;
+      if (json && Object.prototype.hasOwnProperty.call(json,"result")) return json.result;
+      if (json && Object.prototype.hasOwnProperty.call(json,"data")) return json.data;
+      throw new Error(json?.error || json?.message || "Format respons server tidak dikenali.");
     } catch (err) {
       console.error("DB Error:", err);
+      if (err.name === "AbortError") throw new Error("Server tidak merespons dalam 15 detik.");
       throw err;
-    }
+    } finally { clearTimeout(timeout); }
   },
 
   async init() { this.mode = "server"; },
-  async list(col) { return await this._call("dbList", [col]); },
-  async get(col, id) { return await this._call("dbGet", [col, id]); },
-  async set(col, id, data) { return await this._call("dbSet", [col, id, data]); },
-  async del(col, id) { return await this._call("dbDel", [col, id]); }
+  async list(col) { const r=await this._call("dbList",[col]); return Array.isArray(r)?r:[]; },
+  async get(col,id) { const r=await this._call("dbGet",[col,id]); return r||null; },
+  async set(col,id,data) { return await this._call("dbSet",[col,id,data]); },
+  async del(col,id) { return await this._call("dbDel",[col,id]); }
 };
 
 /* ---------- State global ---------- */
@@ -322,10 +327,22 @@ const SET_DEFAULT = {
 
 /* ---------- Muat data ---------- */
 async function muatData(){
-  const [u,h,st] = await Promise.all([ DB.list("ujian"), DB.list("hasil"), DB.get("pengaturan","umum") ]);
-  S.ujian = u.sort((a,b)=>(b.dibuat||0)-(a.dibuat||0));
-  S.hasil = h.sort((a,b)=>(b.selesai||0)-(a.selesai||0));
-  S.set = Object.assign({}, SET_DEFAULT, st||{});
+  try {
+    const [u,h,st] = await Promise.all([
+      DB.list("ujian"), DB.list("hasil"), DB.get("pengaturan","umum")
+    ]);
+    S.ujian=(Array.isArray(u)?u:[]).sort((a,b)=>(b.dibuat||0)-(a.dibuat||0));
+    S.hasil=(Array.isArray(h)?h:[]).sort((a,b)=>(b.selesai||0)-(a.selesai||0));
+    S.set=Object.assign({},SET_DEFAULT,st||{});
+    DB.mode="server";
+    return true;
+  } catch(err) {
+    console.error("Gagal memuat database server:",err);
+    DB.mode="lokal";
+    S.ujian=[]; S.hasil=[]; S.set=Object.assign({},SET_DEFAULT);
+    toast("Server belum terhubung. Aplikasi dibuka dalam Mode Lokal.");
+    return false;
+  }
 }
 async function simpanUjian(x){ x.diubah=Date.now(); await DB.set("ujian",x.id,x);
   const i=S.ujian.findIndex(y=>y.id===x.id); if(i>=0) S.ujian[i]=x; else S.ujian.unshift(x); }
@@ -748,7 +765,21 @@ async function kirimJawaban(otomatis){
     jawaban:S.sesi.jawaban, skorManual:{}, urutan:S.sesi.urutan,
     nilai:r.nilai, skor:r.skor, totBobot:r.totBobot, benar:r.benar, salah:r.salah, kosong:r.kosong,
     perluKoreksi:r.perluKoreksi, butir:r.butir, kkm:u.kkm||S.set.kkm };
-  try{ await simpanHasil(rec); }catch(e){ console.error(e); toast("Gagal menyimpan ke server — disimpan lokal."); DB.api=null; DB.mode="lokal"; await simpanHasil(rec); }
+  try {
+    await simpanHasil(rec);
+  } catch(e) {
+    console.error(e); DB.mode="lokal";
+    try {
+      const key="tka_local_hasil";
+      const lokal=JSON.parse(localStorage.getItem(key)||"[]");
+      const i=lokal.findIndex(x=>x.id===rec.id);
+      if(i>=0) lokal[i]=rec; else lokal.unshift(rec);
+      localStorage.setItem(key,JSON.stringify(lokal));
+      const hi=S.hasil.findIndex(x=>x.id===rec.id);
+      if(hi>=0) S.hasil[hi]=rec; else S.hasil.unshift(rec);
+      toast("Server gagal dihubungi. Hasil disimpan di perangkat ini.");
+    } catch(localErr) { console.error(localErr); toast("Gagal menyimpan hasil."); return; }
+  }
   hapusDraft();
   S.hasilAktif=rec; S.sesi=null; S.view="hasil"; render();
 }
