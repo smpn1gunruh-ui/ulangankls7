@@ -259,7 +259,7 @@ function seed(){
     ['Bilangan prima di antara pilihan berikut adalah ...',['21','27','29','33'],2],['Keliling persegi dengan sisi 7 cm adalah ... cm',['14','21','28','49'],2],
     ['15% dari 200 adalah ...',['15','20','30','45'],2]];
   return {
-    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'',autoSync:false,lastSync:0},
+    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'https://script.google.com/macros/s/AKfycbyK2NLiewunLJ-Avzf7BmvNiGcEOjebqSLci-35I-D3MWypN2lEAo6kGnt2ODvTQ7aH/exec',autoSync:true,lastSync:0},
     students:[{id:uid(),nis:'1001',name:'Andi Pratama',kelas:'VII-A',password:'1001'},
               {id:uid(),nis:'1002',name:'Siti Rahma',kelas:'VII-A',password:'1002'},
               {id:uid(),nis:'1003',name:'Budi Santoso',kelas:'VII-B',password:'1003'}],
@@ -268,8 +268,9 @@ function seed(){
     results:[]
   };
 }
+var DEFAULT_SHEET_URL='https://script.google.com/macros/s/AKfycbyK2NLiewunLJ-Avzf7BmvNiGcEOjebqSLci-35I-D3MWypN2lEAo6kGnt2ODvTQ7aH/exec';
 function load(){
-  try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);if(d&&d.settings&&d.students&&d.exams&&d.questions&&d.results)return d}}catch(e){}
+  try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);if(d&&d.settings&&d.students&&d.exams&&d.questions&&d.results){if(!d.settings.sheetUrl)d.settings.sheetUrl=DEFAULT_SHEET_URL;return d}}}catch(e){}
   var s=seed();try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}return s;
 }
 var warned=false;
@@ -277,6 +278,129 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){if(!wa
 var DB=load();
 
 /* ================= sinkronisasi spreadsheet (Google Sheets via Apps Script) ================= */
+var APPSCRIPT_CODE=`/**
+ * ==========================================================
+ * BACKEND SINKRONISASI "UJIAN SISWA" KE GOOGLE SPREADSHEET
+ * ==========================================================
+ * CARA PASANG:
+ * 1. Buka https://sheets.google.com, buat Spreadsheet baru
+ *    (boleh kosong, judul bebas, mis. "Database Ujian Siswa").
+ * 2. Di menu Spreadsheet: Ekstensi > Apps Script.
+ * 3. Hapus kode bawaan di editor, ganti dengan SELURUH isi
+ *    kode ini, lalu klik Simpan (ikon disket).
+ * 4. Klik tombol biru "Deploy" > "New deployment".
+ *    - Klik ikon gerigi di sebelah "Select type" > pilih "Web app".
+ *    - Description: bebas, mis. "sinkron ujian".
+ *    - Execute as: "Me".
+ *    - Who has access: "Anyone".
+ *    - Klik "Deploy", lalu "Authorize access" dan ikuti proses
+ *      izin akun Google (klik Advanced > Go to project (unsafe)
+ *      jika muncul peringatan, ini wajar untuk skrip milik sendiri).
+ * 5. Salin "Web app URL" yang muncul (diakhiri /exec).
+ * 6. Tempel URL itu ke aplikasi Ujian Siswa > menu Admin >
+ *    Pengaturan > "URL Web App Apps Script", lalu Simpan.
+ * 7. Klik "Kirim data ke spreadsheet sekarang" untuk sinkron
+ *    pertama kali. Setelah itu akan muncul sheet "AppData"
+ *    (data mentah, jangan diedit manual) dan "Rekap Nilai"
+ *    (tampilan yang enak dibaca untuk guru/wali kelas).
+ *
+ * CATATAN:
+ * - Setiap kali Anda mengubah kode ini, harus deploy ulang:
+ *   Deploy > Manage deployments > ikon pensil > Version: New
+ *   version > Deploy. URL /exec biasanya tetap sama.
+ * - "Ambil data dari spreadsheet" akan MENIMPA data di
+ *   perangkat dengan data yang tersimpan di spreadsheet.
+ * ==========================================================
+ */
+
+var DATA_SHEET = 'AppData';
+var REPORT_SHEET = 'Rekap Nilai';
+
+function doGet(e) {
+  var json = readData_();
+  return ContentService.createTextOutput(json || '{}')
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    var body = e && e.postData && e.postData.contents;
+    if (!body) throw new Error('Tidak ada data yang dikirim');
+    var db = JSON.parse(body);
+    if (!db || !db.settings || !db.students || !db.exams || !db.questions || !db.results) {
+      throw new Error('Format data tidak dikenali');
+    }
+    writeData_(JSON.stringify(db));
+    rebuildReport_(db);
+    return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err.message || err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
+
+function getOrCreate_(name) {
+  var sh = ss_().getSheetByName(name);
+  if (!sh) sh = ss_().insertSheet(name);
+  return sh;
+}
+
+function readData_() {
+  var sh = ss_().getSheetByName(DATA_SHEET);
+  if (!sh) return '';
+  return sh.getRange(1, 1).getValue() || '';
+}
+
+function writeData_(jsonText) {
+  var sh = getOrCreate_(DATA_SHEET);
+  sh.getRange(1, 1).setValue(jsonText);
+}
+
+// Membuat ulang sheet "Rekap Nilai" yang mudah dibaca manusia,
+// berisi satu baris per (ujian x siswa yang sudah mengerjakan).
+function rebuildReport_(db) {
+  var sh = getOrCreate_(REPORT_SHEET);
+  sh.clear();
+  var header = ['Ujian', 'Mapel', 'NIS', 'Nama', 'Kelas', 'Status', 'Nilai', 'Benar', 'Salah', 'Kosong', 'KKM', 'Keterangan', 'Mulai', 'Selesai'];
+  var rows = [header];
+
+  var studentsById = {};
+  db.students.forEach(function (s) { studentsById[s.id] = s; });
+
+  db.exams.forEach(function (ex) {
+    var results = db.results.filter(function (r) { return r.examId === ex.id; });
+    results.forEach(function (r) {
+      var s = studentsById[r.studentId];
+      if (!s) return;
+      var done = r.status === 'done';
+      rows.push([
+        ex.name || '',
+        ex.mapel || '',
+        s.nis || '',
+        s.name || '',
+        s.kelas || '',
+        done ? 'Selesai' : 'Sedang mengerjakan',
+        done ? r.score : '',
+        done ? r.correct : '',
+        done ? r.wrong : '',
+        done ? r.blank : '',
+        ex.kkm != null ? ex.kkm : '',
+        done ? (r.score >= ex.kkm ? 'Tuntas' : 'Belum tuntas') : '',
+        r.startedAt ? new Date(r.startedAt) : '',
+        r.finishedAt ? new Date(r.finishedAt) : ''
+      ]);
+    });
+  });
+
+  sh.getRange(1, 1, rows.length, header.length).setValues(rows);
+  sh.getRange(1, 1, 1, header.length).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  sh.autoResizeColumns(1, header.length);
+}
+`;
 function sheetUrl(){return String(DB.settings.sheetUrl||'').trim()}
 async function syncPush(silent){
   var url=sheetUrl();if(!url)return silent?false:toast('Isi dulu URL Web App Spreadsheet di Pengaturan','err');
@@ -698,7 +822,8 @@ function pgPengaturan(){
   '<div><button class="ab" type="submit">Simpan pengaturan</button></div></form>'+
   '<div class="bar" style="margin-top:.7rem">'+
   '<button class="ab" data-act="syncPush">Kirim data ke spreadsheet sekarang</button>'+
-  '<button class="ab sec" data-act="syncPull">Ambil data dari spreadsheet</button></div>'+
+  '<button class="ab sec" data-act="syncPull">Ambil data dari spreadsheet</button>'+
+  '<button class="ab sec" data-act="showScript">Lihat kode Apps Script</button></div>'+
   '<p class="note" style="margin:.6rem 0 0">'+(st.lastSync?('Sinkron terakhir: '+new Date(st.lastSync).toLocaleString('id-ID')):'Belum pernah sinkron.')+'</p></div>'+
   '<div class="panel" style="margin-top:1rem"><h3>Cadangan data</h3><p class="note" style="margin:0 0 .7rem">Semua data tersimpan di browser perangkat ini. Unduh cadangan secara berkala; pulihkan di perangkat lain jika perlu.</p><div class="bar" style="margin:0"><button class="ab" data-act="backup">Unduh cadangan (JSON)</button><button class="ab sec" data-act="restore">Pulihkan dari cadangan</button></div></div>'+
   '<div class="panel" style="margin-top:1rem"><h3>Hapus data</h3><div class="bar" style="margin:0">'+(st.demo?'<button class="ab sec" data-act="clearDemo">Hapus data contoh</button>':'')+'<button class="ab sec" data-act="clearResults">Hapus semua hasil ujian</button><button class="ab dng" data-act="resetAll">Reset seluruh aplikasi</button></div></div>';
@@ -779,6 +904,18 @@ var ACT={
   clearResults:function(){ask('Hapus <b>semua</b> hasil ujian? Siswa bisa mengerjakan ulang dari awal.','Hapus hasil',function(){DB.results=[];save();toast('Semua hasil dihapus');renderAdminPage()},true)},
   syncPush:function(){syncPush(false)},
   syncPull:function(){syncPull()},
+  showScript:function(){
+    modal('Kode Google Apps Script',
+      '<p class="note" style="margin:0 0 .6rem">Salin seluruh kode di bawah ini ke editor Apps Script (Ekstensi &gt; Apps Script) pada Google Spreadsheet Anda, lalu ikuti langkah deploy pada komentar di bagian atas kode.</p>'+
+      '<textarea id="scriptBox" readonly style="width:100%;height:320px;font-family:monospace;font-size:.8rem;border:2px solid #cfc6e6;border-radius:8px;padding:.7rem" onclick="this.select()">'+esc(APPSCRIPT_CODE)+'</textarea>',
+      '<button class="ab sec" data-act="close">Tutup</button><button class="ab" data-act="copyScript">Salin kode</button>',true);
+  },
+  copyScript:function(){
+    var box=$('#scriptBox');if(box){box.select();box.setSelectionRange(0,999999)}
+    var done=function(){toast('Kode disalin ke clipboard')},fail=function(){toast('Gagal menyalin, salin manual dari kotak teks','err')};
+    if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(APPSCRIPT_CODE).then(done).catch(function(){try{document.execCommand('copy');done()}catch(e){fail()}});
+    else{try{document.execCommand('copy');done()}catch(e){fail()}}
+  },
   resetAll:function(){ask('Reset seluruh aplikasi? Semua siswa, ujian, soal, dan hasil akan dihapus, akun admin kembali ke bawaan.','Reset semua',function(){DB=seed();save();S.screen='login';closeModal();render();toast('Aplikasi direset ke data contoh')},true)}
 };
 
