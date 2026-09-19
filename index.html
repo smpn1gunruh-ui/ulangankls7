@@ -259,7 +259,7 @@ function seed(){
     ['Bilangan prima di antara pilihan berikut adalah ...',['21','27','29','33'],2],['Keliling persegi dengan sisi 7 cm adalah ... cm',['14','21','28','49'],2],
     ['15% dari 200 adalah ...',['15','20','30','45'],2]];
   return {
-    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true},
+    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'',autoSync:false,lastSync:0},
     students:[{id:uid(),nis:'1001',name:'Andi Pratama',kelas:'VII-A',password:'1001'},
               {id:uid(),nis:'1002',name:'Siti Rahma',kelas:'VII-A',password:'1002'},
               {id:uid(),nis:'1003',name:'Budi Santoso',kelas:'VII-B',password:'1003'}],
@@ -275,6 +275,33 @@ function load(){
 var warned=false;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){if(!warned){warned=true;toast('Penyimpanan browser tidak tersedia. Data hanya bertahan selama halaman terbuka.','err')}}}
 var DB=load();
+
+/* ================= sinkronisasi spreadsheet (Google Sheets via Apps Script) ================= */
+function sheetUrl(){return String(DB.settings.sheetUrl||'').trim()}
+async function syncPush(silent){
+  var url=sheetUrl();if(!url)return silent?false:toast('Isi dulu URL Web App Spreadsheet di Pengaturan','err');
+  try{
+    var res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(DB)});
+    var j=await res.json().catch(function(){return null});
+    if(!res.ok||!j||j.ok!==true)throw new Error((j&&j.error)||('HTTP '+res.status));
+    DB.settings.lastSync=now();save();
+    if(!silent){toast('Data terkirim ke spreadsheet');if(S.screen==='admin')renderAdminPage()}
+    return true;
+  }catch(err){if(!silent)toast('Gagal mengirim ke spreadsheet: '+err.message,'err');return false}
+}
+async function syncPull(){
+  var url=sheetUrl();if(!url)return toast('Isi dulu URL Web App Spreadsheet di Pengaturan','err');
+  ask('Ambil data dari spreadsheet? Data di perangkat ini (siswa, ujian, soal, hasil) akan diganti dengan data dari spreadsheet.','Ambil data',async function(){
+    try{
+      var res=await fetch(url+(url.indexOf('?')>-1?'&':'?')+'t='+Date.now());
+      var d=await res.json();
+      if(!(d&&d.settings&&Array.isArray(d.students)&&Array.isArray(d.exams)&&Array.isArray(d.questions)&&Array.isArray(d.results)))throw new Error('format data dari spreadsheet tidak dikenali');
+      var url2=DB.settings.sheetUrl,as=DB.settings.autoSync;
+      DB=d;DB.settings.sheetUrl=url2;DB.settings.autoSync=as;DB.settings.lastSync=now();save();
+      toast('Data dari spreadsheet berhasil diambil');renderAdminPage();
+    }catch(err){toast('Gagal mengambil dari spreadsheet: '+err.message,'err')}
+  },true);
+}
 
 /* ================= state ================= */
 var S={screen:'login',uid:null,resId:null,qi:0,err:'',adm:{page:'dashboard',q:'',kelas:'',examId:'',sel:{}}};
@@ -454,6 +481,7 @@ function finishExam(auto){
   var g=grade(r);r.correct=g.correct;r.wrong=g.wrong;r.blank=g.blank;r.score=g.score;r.status='done';r.finishedAt=Math.min(now(),r.endsAt);
   save();stopTimer();closeModal();S.screen='result';render();
   if(auto)toast('Waktu habis, jawabanmu otomatis dikirim');
+  if(DB.settings.autoSync&&DB.settings.sheetUrl)syncPush(true);
 }
 function vExam(app){
   var r=curRes();if(!r){S.screen='home';return render()}
@@ -664,6 +692,14 @@ function pgPengaturan(){
   return head('Pengaturan')+
   '<div class="two"><div class="panel"><h3>Identitas sekolah</h3><form data-form="school"><label class="fld"><span>Nama sekolah</span><input name="school" required value="'+esc(st.school)+'" class="a-in"></label><div style="margin-top:.8rem"><button class="ab" type="submit">Simpan</button></div></form></div>'+
   '<div class="panel"><h3>Akun admin</h3><form data-form="admin" style="display:grid;gap:.7rem"><label class="fld"><span>Nama pengguna</span><input name="u" required class="a-in" value="'+esc(st.adminUser)+'"></label><label class="fld"><span>Kata sandi baru</span><input name="p" type="password" required minlength="6" class="a-in" autocomplete="new-password"></label><div><button class="ab" type="submit">Ganti akun admin</button></div></form></div></div>'+
+  '<div class="panel" style="margin-top:1rem"><h3>Sinkronisasi Google Spreadsheet</h3><p class="note" style="margin:0 0 .7rem">Hubungkan aplikasi ini ke Google Spreadsheet supaya data siswa, ujian, dan hasil bisa dibuka/dipantau lewat Spreadsheet dan dipakai di perangkat lain. Perlu deploy Google Apps Script terlebih dulu (lihat file panduan yang disertakan).</p>'+
+  '<form data-form="sheet" style="display:grid;gap:.7rem;max-width:640px"><label class="fld"><span>URL Web App Apps Script</span><input name="sheetUrl" placeholder="https://script.google.com/macros/s/xxxxx/exec" class="a-in" value="'+esc(st.sheetUrl||'')+'"></label>'+
+  '<label class="fld" style="flex-direction:row;align-items:center;gap:.5rem"><input type="checkbox" name="autoSync" '+(st.autoSync?'checked':'')+' style="width:auto"><span>Kirim otomatis ke spreadsheet tiap kali siswa menyelesaikan ujian</span></label>'+
+  '<div><button class="ab" type="submit">Simpan pengaturan</button></div></form>'+
+  '<div class="bar" style="margin-top:.7rem">'+
+  '<button class="ab" data-act="syncPush">Kirim data ke spreadsheet sekarang</button>'+
+  '<button class="ab sec" data-act="syncPull">Ambil data dari spreadsheet</button></div>'+
+  '<p class="note" style="margin:.6rem 0 0">'+(st.lastSync?('Sinkron terakhir: '+new Date(st.lastSync).toLocaleString('id-ID')):'Belum pernah sinkron.')+'</p></div>'+
   '<div class="panel" style="margin-top:1rem"><h3>Cadangan data</h3><p class="note" style="margin:0 0 .7rem">Semua data tersimpan di browser perangkat ini. Unduh cadangan secara berkala; pulihkan di perangkat lain jika perlu.</p><div class="bar" style="margin:0"><button class="ab" data-act="backup">Unduh cadangan (JSON)</button><button class="ab sec" data-act="restore">Pulihkan dari cadangan</button></div></div>'+
   '<div class="panel" style="margin-top:1rem"><h3>Hapus data</h3><div class="bar" style="margin:0">'+(st.demo?'<button class="ab sec" data-act="clearDemo">Hapus data contoh</button>':'')+'<button class="ab sec" data-act="clearResults">Hapus semua hasil ujian</button><button class="ab dng" data-act="resetAll">Reset seluruh aplikasi</button></div></div>';
 }
@@ -741,6 +777,8 @@ var ACT={
       DB.students=DB.students.filter(function(s){return stIds.indexOf(s.id)<0});DB.results=DB.results.filter(function(r){return exIds.indexOf(r.examId)<0&&stIds.indexOf(r.studentId)<0});
       DB.settings.demo=false;save();toast('Data contoh dihapus');renderAdminPage()})},
   clearResults:function(){ask('Hapus <b>semua</b> hasil ujian? Siswa bisa mengerjakan ulang dari awal.','Hapus hasil',function(){DB.results=[];save();toast('Semua hasil dihapus');renderAdminPage()},true)},
+  syncPush:function(){syncPush(false)},
+  syncPull:function(){syncPull()},
   resetAll:function(){ask('Reset seluruh aplikasi? Semua siswa, ujian, soal, dan hasil akan dihapus, akun admin kembali ke bawaan.','Reset semua',function(){DB=seed();save();S.screen='login';closeModal();render();toast('Aplikasi direset ke data contoh')},true)}
 };
 
@@ -789,6 +827,7 @@ document.addEventListener('submit',function(e){
       var q={text:String(fd.get('text')).trim(),options:opts,answer:ans,points:parseFloat(g('points'))||1};
       if(qid)Object.assign(byId(DB.questions,qid),q);else{q.id=uid();q.examId=S.adm.examId;DB.questions.push(q)}
       save();closeModal();toast('Soal disimpan');renderAdminPage();break}
+    case 'sheet':{DB.settings.sheetUrl=g('sheetUrl');DB.settings.autoSync=!!fd.get('autoSync');save();toast('Pengaturan spreadsheet disimpan');renderAdminPage();break}
     case 'school':{DB.settings.school=g('school');save();toast('Nama sekolah disimpan');renderAdminPage();document.querySelector('.side .logo small').textContent=DB.settings.school;break}
     case 'admin':{
       if(String(fd.get('p')).length<6)return toast('Kata sandi minimal 6 karakter','err');
