@@ -267,9 +267,10 @@ const JENIS = {
 
 /* ---------- Lapisan penyimpanan: Google Sheets via Apps Script ---------- */
 /* ---------- Lapisan penyimpanan: Fetch API ke Google Apps Script Web App ---------- */
+/* ---------- Lapisan penyimpanan: Fetch API ke Google Apps Script Web App ---------- */
 const DB = {
   mode: "server",
-  // Masukkan URL Web App Apps Script Anda di sini:
+  // Masukkan URL Web App Google Apps Script Anda di sini:
   API_URL: "https://script.google.com/macros/s/AKfycbzeY-pJXDMFy-zJVJqpt0vFdjQ6vMDBfwAC6R8AzSGsGOC7q_gqXMx5H3INI6jNDDDs/exec",
 
   async _call(fn, args = []) {
@@ -284,6 +285,8 @@ const DB = {
       return json.result;
     } catch (err) {
       console.error("DB Error:", err);
+      // Fallback otomatis ke mode lokal jika jaringan/server bermasalah
+      this.mode = "lokal";
       throw err;
     }
   },
