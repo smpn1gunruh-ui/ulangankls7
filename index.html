@@ -259,7 +259,7 @@ function seed(){
     ['Bilangan prima di antara pilihan berikut adalah ...',['21','27','29','33'],2],['Keliling persegi dengan sisi 7 cm adalah ... cm',['14','21','28','49'],2],
     ['15% dari 200 adalah ...',['15','20','30','45'],2]];
   return {
-    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'https://script.google.com/macros/s/AKfycbyK2NLiewunLJ-Avzf7BmvNiGcEOjebqSLci-35I-D3MWypN2lEAo6kGnt2ODvTQ7aH/exec',autoSync:true,lastSync:0},
+    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'https://script.google.com/macros/s/AKfycbxlM8VPmV7b9Dzy9G1VPAMu6BQABS-xFGFQv73Ztb21ceNNA3hW3Dk3veP0UkrsmtYU/exec',autoSync:true,lastSync:0},
     students:[{id:uid(),nis:'1001',name:'Andi Pratama',kelas:'VII-A',password:'1001'},
               {id:uid(),nis:'1002',name:'Siti Rahma',kelas:'VII-A',password:'1002'},
               {id:uid(),nis:'1003',name:'Budi Santoso',kelas:'VII-B',password:'1003'}],
@@ -268,13 +268,21 @@ function seed(){
     results:[]
   };
 }
-var DEFAULT_SHEET_URL='https://script.google.com/macros/s/AKfycbyK2NLiewunLJ-Avzf7BmvNiGcEOjebqSLci-35I-D3MWypN2lEAo6kGnt2ODvTQ7aH/exec';
+var DEFAULT_SHEET_URL='https://script.google.com/macros/s/AKfycbxlM8VPmV7b9Dzy9G1VPAMu6BQABS-xFGFQv73Ztb21ceNNA3hW3Dk3veP0UkrsmtYU/exec';
 function load(){
   try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);if(d&&d.settings&&d.students&&d.exams&&d.questions&&d.results){if(!d.settings.sheetUrl)d.settings.sheetUrl=DEFAULT_SHEET_URL;return d}}}catch(e){}
   var s=seed();try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}return s;
 }
 var warned=false;
-function save(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){if(!warned){warned=true;toast('Penyimpanan browser tidak tersedia. Data hanya bertahan selama halaman terbuka.','err')}}}
+var syncTimer=null;
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(DB))}catch(e){if(!warned){warned=true;toast('Penyimpanan browser tidak tersedia. Data hanya bertahan selama halaman terbuka.','err')}}}
+function save(){persist();scheduleAutoSync()}
+function scheduleAutoSync(){
+  if(!DB.settings.autoSync||!sheetUrlSet())return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(function(){syncPush(true)},1200);
+}
+function sheetUrlSet(){return !!String(DB.settings.sheetUrl||'').trim()}
 var DB=load();
 
 /* ================= sinkronisasi spreadsheet (Google Sheets via Apps Script) ================= */
@@ -408,10 +416,10 @@ async function syncPush(silent){
     var res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(DB)});
     var j=await res.json().catch(function(){return null});
     if(!res.ok||!j||j.ok!==true)throw new Error((j&&j.error)||('HTTP '+res.status));
-    DB.settings.lastSync=now();save();
+    DB.settings.lastSync=now();persist();
     if(!silent){toast('Data terkirim ke spreadsheet');if(S.screen==='admin')renderAdminPage()}
     return true;
-  }catch(err){if(!silent)toast('Gagal mengirim ke spreadsheet: '+err.message,'err');return false}
+  }catch(err){toast('Gagal sinkron ke spreadsheet: '+err.message,'err');return false}
 }
 async function syncPull(){
   var url=sheetUrl();if(!url)return toast('Isi dulu URL Web App Spreadsheet di Pengaturan','err');
@@ -421,7 +429,7 @@ async function syncPull(){
       var d=await res.json();
       if(!(d&&d.settings&&Array.isArray(d.students)&&Array.isArray(d.exams)&&Array.isArray(d.questions)&&Array.isArray(d.results)))throw new Error('format data dari spreadsheet tidak dikenali');
       var url2=DB.settings.sheetUrl,as=DB.settings.autoSync;
-      DB=d;DB.settings.sheetUrl=url2;DB.settings.autoSync=as;DB.settings.lastSync=now();save();
+      DB=d;DB.settings.sheetUrl=url2;DB.settings.autoSync=as;DB.settings.lastSync=now();persist();
       toast('Data dari spreadsheet berhasil diambil');renderAdminPage();
     }catch(err){toast('Gagal mengambil dari spreadsheet: '+err.message,'err')}
   },true);
@@ -605,7 +613,6 @@ function finishExam(auto){
   var g=grade(r);r.correct=g.correct;r.wrong=g.wrong;r.blank=g.blank;r.score=g.score;r.status='done';r.finishedAt=Math.min(now(),r.endsAt);
   save();stopTimer();closeModal();S.screen='result';render();
   if(auto)toast('Waktu habis, jawabanmu otomatis dikirim');
-  if(DB.settings.autoSync&&DB.settings.sheetUrl)syncPush(true);
 }
 function vExam(app){
   var r=curRes();if(!r){S.screen='home';return render()}
