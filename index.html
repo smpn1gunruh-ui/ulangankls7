@@ -259,7 +259,7 @@ function seed(){
     ['Bilangan prima di antara pilihan berikut adalah ...',['21','27','29','33'],2],['Keliling persegi dengan sisi 7 cm adalah ... cm',['14','21','28','49'],2],
     ['15% dari 200 adalah ...',['15','20','30','45'],2]];
   return {
-    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'https://script.google.com/macros/s/AKfycbxlM8VPmV7b9Dzy9G1VPAMu6BQABS-xFGFQv73Ztb21ceNNA3hW3Dk3veP0UkrsmtYU/exec',autoSync:true,lastSync:0},
+    settings:{school:'SMP Contoh Nusantara',adminUser:'admin',adminPass:'admin123',demo:true,sheetUrl:'https://script.google.com/macros/s/AKfycbxZHAAvZqO_bij8A_z_qCDT0HTXfI2J7F4wZoBWvqyg9I9erGc_W_SX2IWBOjmZYW5HXg/exec',autoSync:true,lastSync:0},
     students:[{id:uid(),nis:'1001',name:'Andi Pratama',kelas:'VII-A',password:'1001'},
               {id:uid(),nis:'1002',name:'Siti Rahma',kelas:'VII-A',password:'1002'},
               {id:uid(),nis:'1003',name:'Budi Santoso',kelas:'VII-B',password:'1003'}],
@@ -268,7 +268,7 @@ function seed(){
     results:[]
   };
 }
-var DEFAULT_SHEET_URL='https://script.google.com/macros/s/AKfycbxlM8VPmV7b9Dzy9G1VPAMu6BQABS-xFGFQv73Ztb21ceNNA3hW3Dk3veP0UkrsmtYU/exec';
+var DEFAULT_SHEET_URL='https://script.google.com/macros/s/AKfycbxZHAAvZqO_bij8A_z_qCDT0HTXfI2J7F4wZoBWvqyg9I9erGc_W_SX2IWBOjmZYW5HXg/exec';
 function load(){
   try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);if(d&&d.settings&&d.students&&d.exams&&d.questions&&d.results){if(!d.settings.sheetUrl)d.settings.sheetUrl=DEFAULT_SHEET_URL;return d}}}catch(e){}
   var s=seed();try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}return s;
